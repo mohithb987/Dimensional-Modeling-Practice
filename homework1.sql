@@ -110,7 +110,7 @@ CREATE TABLE actors_scd
 
 
 
-
+-- 4. Backfill query for actors_scd upto 2018
 INSERT INTO actors_scd
 WITH with_previous AS
     (SELECT actor,
@@ -150,7 +150,9 @@ WITH with_previous AS
 
 SELECT * FROM actors_scd ORDER BY actor, start_year;
 SELECT COUNT(*) FROM actors_scd;
--- incrementally update SCD table from 2019.
+
+-- 5. Incremental query for actors_scd from 2019 to 2022
+
 CREATE TYPE actors_scd_type AS (
     quality_class quality_class,
     is_active boolean,
@@ -163,12 +165,12 @@ CREATE OR REPLACE FUNCTION process_actors_by_year()
 BEGIN
     FOR input_year IN 2019..2022 LOOP
 INSERT INTO actors_scd
-WITH last_year_scd AS(                -- these are the records of concern, as they either ended last year, or would continue further.
+WITH last_year_scd AS(               -- Records that ended in the previous year or are still ongoing, and need to be handled in the current load.
     SELECT * from actors_scd
              WHERE current_year=input_year-1
              AND end_year=input_year-1
 ),
-    historical_scd AS (               -- records that we aren't concerned about in the incremental load
+    historical_scd AS (               -- Records from previous years that are no longer relevant for the current incremental load.
     SELECT
         actor,
         actorid,
@@ -183,7 +185,6 @@ WITH last_year_scd AS(                -- these are the records of concern, as th
     SELECT * from actors
          WHERE current_year=input_year
     ),
-    --increment SCD end season with current season for unchanged records.
     unchanged_records AS (
         SELECT
             ts.actor,
@@ -191,8 +192,8 @@ WITH last_year_scd AS(                -- these are the records of concern, as th
             ts.quality_class,
             ts.is_active,
             ls.start_year,
-            ts.current_year AS end_season,
-            input_year as current_year
+            ts.current_year AS end_year,         -- Update SCD End Year with Current year for unchanged records.
+            input_year as current_year      
             FROM this_year_data ts
             JOIN last_year_scd ls
             ON ls.actorid=ts.actorid
